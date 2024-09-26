@@ -267,7 +267,8 @@ export class Controller {
 
     @bind async publishEntityState(entity: Group | Device, payload: KeyValue, stateChangeReason?: StateChangeReason): Promise<void> {
         let message = {...payload};
-
+        let ID = String(entity.ID);
+        console.log(ID);
         // Update state cache with new state.
         const newState = this.state.set(entity, payload, stateChangeReason);
 
@@ -328,7 +329,8 @@ export class Controller {
         if (Object.entries(message).length) {
             const output = settings.get().advanced.output;
             if (output === 'attribute_and_json' || output === 'json') {
-                await this.mqtt.publish(entity.name, stringify(message), options);
+                //await this.mqtt.publish(entity.name, stringify(message), options);
+                await this.mqtt.publish(ID, stringify(message), options);
             }
 
             if (output === 'attribute_and_json' || output === 'attribute') {
