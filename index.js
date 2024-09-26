@@ -13,7 +13,7 @@ let watchdog = process.env.Z2M_WATCHDOG != undefined;
 let watchdogCount = 0;
 let unsolicitedStop = false;
 // csv in minutes, default: 1min, 5min, 15min, 30min, 60min
-let watchdogDelays = [60000, 300000, 900000, 1800000, 3600000];
+let watchdogDelays = [2000, 60000, 300000, 900000, 1800000, 3600000];
 
 if (watchdog && process.env.Z2M_WATCHDOG !== 'default') {
     if (/^(?:(?:[0-9]*[.])?[0-9]+)+(?:,?(?:[0-9]*[.])?[0-9]+)*$/.test(process.env.Z2M_WATCHDOG)) {
@@ -34,7 +34,7 @@ async function triggerWatchdog(code) {
         // garbage collector
         controller = undefined;
 
-        console.log(`WATCHDOG: Waiting ${delay/60000}min before next start try.`);
+        console.log(`WATCHDOG: Waiting ${delay / 60000}min before next start try.`);
         await new Promise((resolve) => setTimeout(resolve, delay));
         await start();
     } else {
@@ -61,7 +61,7 @@ async function currentHash() {
     const git = require('git-last-commit');
 
     return new Promise((resolve) => {
-        git.getLastCommit((err, commit) => err ? resolve('unknown') : resolve(commit.shortHash));
+        git.getLastCommit((err, commit) => (err ? resolve('unknown') : resolve(commit.shortHash)));
     });
 }
 
@@ -155,7 +155,7 @@ async function start() {
 
     // consider next controller.stop() call as unsolicited, only after successful first start
     unsolicitedStop = true;
-    watchdogCount = 0;// reset
+    watchdogCount = 0; // reset
 }
 
 async function stop(restart) {

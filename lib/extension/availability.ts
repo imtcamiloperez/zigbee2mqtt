@@ -48,8 +48,9 @@ export default class Availability extends Extension {
 
     private resetTimer(device: Device): void {
         clearTimeout(this.timers[device.ieeeAddr]);
+        this.removeFromPingQueue(device);
 
-        // If the timer triggers, the device is not available anymore otherwise resetTimer already have been called
+        // If the timer triggers, the device is not available anymore otherwise resetTimer already has been called
         if (this.isActiveDevice(device)) {
             // If device did not check in, ping it, if that fails it will be marked as offline
             this.timers[device.ieeeAddr] = setTimeout(() => this.addToPingQueue(device), this.getTimeout(device) + utils.seconds(1));
@@ -58,14 +59,16 @@ export default class Availability extends Extension {
         }
     }
 
-    private async addToPingQueue(device: Device): Promise<void> {
+    private addToPingQueue(device: Device): void {
         this.pingQueue.push(device);
-        await this.pingQueueExecuteNext();
+        this.pingQueueExecuteNext().catch(utils.noop);
     }
 
     private removeFromPingQueue(device: Device): void {
         const index = this.pingQueue.findIndex((d) => d.ieeeAddr === device.ieeeAddr);
-        index != -1 && this.pingQueue.splice(index, 1);
+        if (index != -1) {
+            this.pingQueue.splice(index, 1);
+        }
     }
 
     private async pingQueueExecuteNext(): Promise<void> {
@@ -127,29 +130,32 @@ export default class Availability extends Extension {
             }
         });
 
-        this.eventBus.onDeviceRemoved(this, (data) => clearTimeout(this.timers[data.ieeeAddr]));
+        this.eventBus.onEntityRemoved(this, (data) => data.type == 'device' && clearTimeout(this.timers[data.id]));
         this.eventBus.onDeviceLeave(this, (data) => clearTimeout(this.timers[data.ieeeAddr]));
         this.eventBus.onDeviceAnnounce(this, (data) => this.retrieveState(data.device));
         this.eventBus.onLastSeenChanged(this, this.onLastSeenChanged);
         this.eventBus.onPublishAvailability(this, this.publishAvailabilityForAllEntities);
         this.eventBus.onGroupMembersChanged(this, (data) => this.publishAvailability(data.group, false));
+        // Publish initial availability
         await this.publishAvailabilityForAllEntities();
+
+        // Start availability for the devices
+        for (const device of this.zigbee.devicesIterator(utils.deviceNotCoordinator)) {
+            if (utils.isAvailabilityEnabledForEntity(device, settings.get())) {
+                this.resetTimer(device);
+
+                // If an active device is unavailable on start, add it to the pingqueue immediately.
+                if (this.isActiveDevice(device) && !this.isAvailable(device)) {
+                    this.addToPingQueue(device);
+                }
+            }
+        }
     }
 
     @bind private async publishAvailabilityForAllEntities(): Promise<void> {
-        for (const entity of [...this.zigbee.devices(false), ...this.zigbee.groups()]) {
+        for (const entity of this.zigbee.devicesAndGroupsIterator(utils.deviceNotCoordinator)) {
             if (utils.isAvailabilityEnabledForEntity(entity, settings.get())) {
-                // Publish initial availability
                 await this.publishAvailability(entity, true, false, true);
-
-                if (entity.isDevice()) {
-                    this.resetTimer(entity);
-
-                    // If an active device is initially unavailable, ping it.
-                    if (this.isActiveDevice(entity) && !this.isAvailable(entity)) {
-                        await this.addToPingQueue(entity);
-                    }
-                }
             }
         }
     }
@@ -181,7 +187,7 @@ export default class Availability extends Extension {
         await this.mqtt.publish(topic, payload, {retain: true, qos: 1});
 
         if (!skipGroups && entity.isDevice()) {
-            for (const group of this.zigbee.groups()) {
+            for (const group of this.zigbee.groupsIterator()) {
                 if (group.hasMember(entity) && utils.isAvailabilityEnabledForEntity(group, settings.get())) {
                     await this.publishAvailability(group, false, forcePublish);
                 }
@@ -224,7 +230,7 @@ export default class Availability extends Extension {
                         continue;
                     }
 
-                    const converter = device.definition.toZigbee.find((c) => c.key.find((k) => item.keys.includes(k)));
+                    const converter = device.definition.toZigbee.find((c) => !c.key || c.key.find((k) => item.keys.includes(k)));
                     const options: KeyValue = device.options;
                     const state = this.state.get(device);
                     const meta: zhc.Tz.Meta = {

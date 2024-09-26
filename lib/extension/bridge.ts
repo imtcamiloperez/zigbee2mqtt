@@ -534,14 +534,16 @@ export default class Bridge extends Extension {
         logger.info(`Interviewing '${device.name}'`);
 
         try {
-            await device.zh.interview();
+            await device.zh.interview(true);
             logger.info(`Successfully interviewed '${device.name}'`);
         } catch (error) {
             throw new Error(`interview of '${device.name}' (${device.ieeeAddr}) failed: ${error}`, {cause: error});
         }
 
-        // publish devices so that the front-end has up-to-date info.
-        await this.publishDevices();
+        // A re-interview can for example result in a different modelId, therefore reconsider the definition.
+        await device.resolveDefinition(true);
+        this.eventBus.emitDevicesChanged();
+        this.eventBus.emitExposesChanged({device});
 
         return utils.getResponse(message, {id: message.id}, null);
     }
@@ -616,7 +618,6 @@ export default class Bridge extends Extension {
 
         try {
             logger.info(`Removing ${entityType} '${entity.name}'${blockForceLog}`);
-            const ieeeAddr = entity.isDevice() && entity.ieeeAddr;
             const name = entity.name;
 
             if (entity instanceof Device) {
@@ -639,7 +640,9 @@ export default class Bridge extends Extension {
 
             // Fire event
             if (entity instanceof Device) {
-                this.eventBus.emitDeviceRemoved({ieeeAddr, name});
+                this.eventBus.emitEntityRemoved({id: entityID, name, type: 'device'});
+            } else {
+                this.eventBus.emitEntityRemoved({id: entityID, name, type: 'group'});
             }
 
             // Remove from configuration.yaml
@@ -684,7 +687,9 @@ export default class Bridge extends Extension {
         const config = objectAssignDeep({}, settings.get());
         delete config.advanced.network_key;
         delete config.mqtt.password;
-        config.frontend && delete config.frontend.auth_token;
+        if (config.frontend) {
+            delete config.frontend.auth_token;
+        }
         const payload = {
             version: this.zigbee2mqttVersion.version,
             commit: this.zigbee2mqttVersion.commitHash,
@@ -720,8 +725,12 @@ export default class Bridge extends Extension {
             scenes: Scene[];
         }
 
-        const devices = this.zigbee.devices().map((device) => {
+        // XXX: definition<>DefinitionPayload don't match to use `Device[]` type here
+        const devices: KeyValue[] = [];
+
+        for (const device of this.zigbee.devicesIterator()) {
             const endpoints: {[s: number]: Data} = {};
+
             for (const endpoint of device.zh.endpoints) {
                 const data: Data = {
                     scenes: utils.getScenes(endpoint),
@@ -753,7 +762,7 @@ export default class Bridge extends Extension {
                 endpoints[endpoint.ID] = data;
             }
 
-            return {
+            devices.push({
                 ieee_address: device.ieeeAddr,
                 type: device.zh.type,
                 network_address: device.zh.networkAddress,
@@ -770,24 +779,32 @@ export default class Bridge extends Extension {
                 interview_completed: device.zh.interviewCompleted,
                 manufacturer: device.zh.manufacturerName,
                 endpoints,
-            };
-        });
+            });
+        }
 
         await this.mqtt.publish('bridge/devices', stringify(devices), {retain: true, qos: 0}, settings.get().mqtt.base_topic, true);
     }
 
     async publishGroups(): Promise<void> {
-        const groups = this.zigbee.groups().map((g) => {
-            return {
-                id: g.ID,
-                friendly_name: g.ID === 901 ? 'default_bind_group' : g.name,
-                description: g.options.description,
-                scenes: utils.getScenes(g.zh),
-                members: g.zh.members.map((e) => {
-                    return {ieee_address: e.getDevice().ieeeAddr, endpoint: e.ID};
-                }),
-            };
-        });
+        // XXX: id<>ID can't use `Group[]` type
+        const groups: KeyValue[] = [];
+
+        for (const group of this.zigbee.groupsIterator()) {
+            const members = [];
+
+            for (const member of group.zh.members) {
+                members.push({ieee_address: member.getDevice().ieeeAddr, endpoint: member.ID});
+            }
+
+            groups.push({
+                id: group.ID,
+                friendly_name: group.ID === 901 ? 'default_bind_group' : group.name,
+                description: group.options.description,
+                scenes: utils.getScenes(group.zh),
+                members,
+            });
+        }
+
         await this.mqtt.publish('bridge/groups', stringify(groups), {retain: true, qos: 0}, settings.get().mqtt.base_topic, true);
     }
 
@@ -802,20 +819,23 @@ export default class Bridge extends Extension {
             custom_clusters: {},
         };
 
-        for (const device of this.zigbee.devices()) {
-            if (Object.keys(device.customClusters).length !== 0) {
-                data.custom_clusters[device.ieeeAddr] = device.customClusters;
-            }
+        for (const device of this.zigbee.devicesIterator((d) => !utils.objectIsEmpty(d.customClusters))) {
+            data.custom_clusters[device.ieeeAddr] = device.customClusters;
         }
 
         await this.mqtt.publish('bridge/definitions', stringify(data), {retain: true, qos: 0}, settings.get().mqtt.base_topic, true);
     }
 
-    getDefinitionPayload(device: Device): DefinitionPayload {
-        if (!device.definition) return null;
+    getDefinitionPayload(device: Device): DefinitionPayload | null {
+        if (!device.definition) {
+            return null;
+        }
+
+        // TODO: better typing to avoid @ts-expect-error
         // @ts-expect-error icon is valid for external definitions
         const definitionIcon = device.definition.icon;
         let icon = device.options.icon ?? definitionIcon;
+
         if (icon) {
             icon = icon.replace('${zigbeeModel}', utils.sanitizeImageParameter(device.zh.modelID));
             icon = icon.replace('${model}', utils.sanitizeImageParameter(device.definition.model));

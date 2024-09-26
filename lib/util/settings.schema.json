@@ -227,7 +227,7 @@
                 },
                 "adapter": {
                     "type": ["string"],
-                    "enum": ["deconz", "zstack", "zigate", "ezsp", "auto", "ember"],
+                    "enum": ["deconz", "zstack", "zigate", "ezsp", "auto", "ember", "zboss"],
                     "title": "Adapter",
                     "default": "auto",
                     "requiresRestart": true,
@@ -609,7 +609,7 @@
                     ],
                     "title": "Pan ID",
                     "requiresRestart": true,
-                    "description": "ZigBee pan ID, changing requires repairing all devices!"
+                    "description": "ZigBee pan ID, changing requires re-pairing all devices!"
                 },
                 "ext_pan_id": {
                     "oneOf": [
@@ -627,7 +627,7 @@
                     ],
                     "title": "Ext Pan ID",
                     "requiresRestart": true,
-                    "description": "Zigbee extended pan ID, changing requires repairing all devices!"
+                    "description": "Zigbee extended pan ID, changing requires re-pairing all devices!"
                 },
                 "channel": {
                     "type": "number",
@@ -636,19 +636,23 @@
                     "default": 11,
                     "title": "ZigBee channel",
                     "requiresRestart": true,
-                    "description": "Zigbee channel, changing requires repairing all devices! (Note: use a ZLL channel: 11, 15, 20, or 25 to avoid Problems)",
+                    "description": "Zigbee channel, changing might require re-pairing some devices! (Note: use a ZLL channel: 11, 15, 20, or 25 to avoid problems)",
                     "examples": [15, 20, 25]
                 },
                 "adapter_concurrent": {
                     "title": "Adapter concurrency",
                     "requiresRestart": true,
                     "type": ["number", "null"],
+                    "minimum": 1,
+                    "maximum": 64,
                     "description": "Adapter concurrency (e.g. 2 for CC2531 or 16 for CC26X2R1) (default: null, uses recommended value)"
                 },
                 "adapter_delay": {
                     "type": ["number", "null"],
                     "requiresRestart": true,
                     "title": "Adapter delay",
+                    "minimum": 0,
+                    "maximum": 1000,
                     "description": "Adapter delay"
                 },
                 "cache_state": {
@@ -698,7 +702,7 @@
                     ],
                     "title": "Network key",
                     "requiresRestart": true,
-                    "description": "Network encryption key, changing requires repairing all devices!"
+                    "description": "Network encryption key, changing requires re-pairing all devices!"
                 },
                 "timestamp_format": {
                     "type": "string",
@@ -711,6 +715,8 @@
                     "type": ["number", "null"],
                     "title": "Transmit power",
                     "requiresRestart": true,
+                    "minimum": -128,
+                    "maximum": 127,
                     "description": "Transmit power of adapter, only available for Z-Stack (CC253*/CC2652/CC1352) adapters, CC2652 = 5dbm, CC1352 max is = 20dbm (5dbm default)"
                 },
                 "output": {
